@@ -69,47 +69,29 @@ jobs:
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
         REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
         
-        echo "=========================================================="
-        echo "REPOSITORIOS DETECTADOS EN TU CUENTA DE AWS ACTUAL:"
-        aws ecr describe-repositories --query "repositories[].repositoryName" --output table
-        echo "=========================================================="
+        echo "Compilando e impulsando imágenes hacia: $REAL_ECR_URL"
         
-        # 2. Mapear dinámicamente los nombres reales creados por CloudFormation
-        REPO_DB=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, 'db') || contains(repositoryName, 'mysql')].repositoryName" --output text | awk '{print $1}')
-        REPO_BACK=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, 'backend') || contains(repositoryName, 'back')].repositoryName" --output text | awk '{print $1}')
-        REPO_FRONT=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, 'frontend') || contains(repositoryName, 'front')].repositoryName" --output text | awk '{print $1}')
+        # 2. Compilar y subir Base de Datos utilizando tus carpetas locales
+        docker build -t $REAL_ECR_URL/tienda-db:eks-v1 ./db
+        docker push $REAL_ECR_URL/tienda-db:eks-v1
 
-        echo "Mapeo de Repositorios Reales de AWS:"
-        echo "-> Carpeta db/ irá al Repositorio AWS: $REPO_DB"
-        echo "-> Carpeta backend/ irá al Repositorio AWS: $REPO_BACK"
-        echo "-> Carpeta frontend/ irá al Repositorio AWS: $REPO_FRONT"
+        # 3. Compilar y subir Backend utilizando tus carpetas locales
+        docker build -t $REAL_ECR_URL/tienda-backend:eks-v1 ./backend
+        docker push $REAL_ECR_URL/tienda-backend:eks-v1
 
-        # 3. Compilar y subir usando tus carpetas locales hacia los repositorios REALES de AWS
-        echo "Compilando e impulsando imagen de Base de Datos..."
-        docker build -t $REAL_ECR_URL/$REPO_DB:eks-v1 ./db
-        docker push $REAL_ECR_URL/$REPO_DB:eks-v1
+        # 4. Compilar y subir Frontend utilizando tus carpetas locales
+        docker build -t $REAL_ECR_URL/tienda-frontend:eks-v1 ./frontend
+        docker push $REAL_ECR_URL/tienda-frontend:eks-v1
 
-        echo "Compilando e impulsando imagen de Backend..."
-        docker build -t $REAL_ECR_URL/$REPO_BACK:eks-v1 ./backend
-        docker push $REAL_ECR_URL/$REPO_BACK:eks-v1
-
-        echo "Compilando e impulsando imagen de Frontend..."
-        docker build -t $REAL_ECR_URL/$REPO_FRONT:eks-v1 ./frontend
-        docker push $REAL_ECR_URL/$REPO_FRONT:eks-v1
-
-        # 4. REEMPLAZO ULTRA SEGURO: Reemplaza solo la variable base {{ECR_URL}} por la real de AWS
+        # 5. REEMPLAZO LIMPIO Y SEGURO: Reemplazar únicamente {{ECR_URL}} por el valor real
+        # Esto evitará cualquier error de caracteres inválidos (InvalidImageName)
         sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/mysql-deployment.yaml
         sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/backend-deployment.yaml
         sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/frontend-deployment.yaml
 
-        # 5. Además, si el repositorio real de AWS se llama diferente a 'tienda-backend', corregimos el nombre en el archivo corregido
-        sed -i "s|/tienda-db:|$/$REPO_DB:|g" k8s/mysql-deployment.yaml
-        sed -i "s|/tienda-backend:|$/$REPO_BACK:|g" k8s/backend-deployment.yaml
-        sed -i "s|/tienda-frontend:|$/$REPO_FRONT:|g" k8s/frontend-deployment.yaml
-
-        # 6. Limpieza estratégica preventiva para eliminar de raíz los pods viejos pegados
+        # 6. Limpieza estratégica preventiva para eliminar de raíz los pods corruptos anteriores
         if kubectl get namespace tienda > /dev/null 2>&1; then
-          echo "Reseteando pods previos para aplicar las imágenes recién subidas..."
+          echo "Reseteando namespace previo para aplicar la configuración limpia..."
           kubectl delete namespace tienda --timeout=60s || echo "Continuando..."
         fi
 

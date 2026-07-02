@@ -21,23 +21,40 @@ jobs:
         aws-region: us-east-1
 
     # ===================================================================
-    # PASO 1: CREACIÓN DE INFRAESTRUCTURA (Con congelamiento de errores)
+    # PASO 1: VERIFICAR SI EL STACK YA EXISTE EN AWS (Con nuevo nombre)
+    # ===================================================================
+    - name: Comprobar existencia del Stack
+      id: check-stack
+      run: |
+        if aws cloudformation describe-stacks --stack-name DevopsEv3 > /dev/null 2>&1; then
+          echo "existe=true" >> $GITHUB_OUTPUT
+          echo "¡El clúster ya existe en AWS bajo el nombre DevopsEv3! Saltando creación..."
+        else
+          echo "existe=false" >> $GITHUB_OUTPUT
+          echo "El clúster DevopsEv3 no existe. Iniciando aprovisionamiento completo..."
+        fi
+
+    # ===================================================================
+    # PASO 2: CREAR INFRAESTRUCTURA (Solo se ejecuta si NO existe DevopsEv3)
     # ===================================================================
     - name: Desplegar Infraestructura Base (CloudFormation)
+      if: steps:check-stack.outputs.existe == 'false'
       uses: aws-actions/aws-cloudformation-github-deploy@v1
       with:
-        name: devopseks-stack
+        name: DevopsEv3
         template: duoc-devops-act3.yaml
         no-fail-on-empty-changeset: "1"
         parameter-overrides: "EksClusterRoleName=LabRole,EksNodeRoleName=LabRole"
-        disable-rollback: "true" # Evita que se borre el log del error en AWS
 
+    # ===================================================================
+    # PASO 3: CONECTARSE AL CLÚSTER (Aplica para ambos casos)
+    # ===================================================================
     - name: Actualizar Kubeconfig para EKS
       run: |
         aws eks update-kubeconfig --region us-east-1 --name devopseks
 
     # ===================================================================
-    # PASO 2: DESPLIEGUE AUTOMÁTICO DE LA APLICACIÓN
+    # PASO 4: DESPLIEGUE EN KUBERNETES (Idempotente)
     # ===================================================================
     - name: Desplegar en Kubernetes (EKS)
       run: |
@@ -53,7 +70,7 @@ jobs:
         kubectl apply -f k8s/frontend-hpa.yaml -n tienda
 
     # ===================================================================
-    # PASO 3: IMPRIMIR URL EN LA CONSOLA DE GITHUB
+    # PASO 5: OBTENER URL DE LA WEB
     # ===================================================================
     - name: Obtener URL de la Tienda de Perritos
       run: |

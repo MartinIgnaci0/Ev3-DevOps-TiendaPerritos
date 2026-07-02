@@ -63,7 +63,6 @@ jobs:
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
         REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
         
-        # Construye y sube las imágenes usando tus carpetas locales
         docker build -t $REAL_ECR_URL/tienda-db:eks-v1 ./db
         docker push $REAL_ECR_URL/tienda-db:eks-v1
 
@@ -74,43 +73,54 @@ jobs:
         docker push $REAL_ECR_URL/tienda-frontend:eks-v1
 
     # ===================================================================
-    # PASO 5: APLICAR DESDE LA RAÍZ Y INYECTAR IMÁGENES REALES
+    # PASO 5: BÚSQUEDA AUTOMÁTICA Y DESPLIEGUE SEGURO (¡INCORRUPTIBLE!)
     # ===================================================================
     - name: Desplegar e inyectar imágenes en Kubernetes
       run: |
-        # 1. Aplicamos los archivos directo de la raíz (sin carpetas intermedias)
-        kubectl apply -f namespace.yaml
-        kubectl apply -f mysql-secret.yaml -n tienda
-        kubectl apply -f mysql-deployment.yaml -n tienda
-        kubectl apply -f mysql-service.yaml -n tienda
-        kubectl apply -f backend-deployment.yaml -n tienda
-        kubectl apply -f backend-service.yaml -n tienda
-        
-        # Aquí aplicamos tu archivo tal como lo nombramos: hpa-backend.yaml
-        kubectl apply -f hpa-backend.yaml -n tienda
-        
-        # Si tienes hpa del frontend, descomenta la línea de abajo borrando el '#'
-        # kubectl apply -f frontend-hpa.yaml -n tienda
-        
-        kubectl apply -f frontend-deployment.yaml -n tienda
-        kubectl apply -f frontend-service.yaml -n tienda
+        echo "=== DETECTANDO ARCHIVOS EN EL REPOSITORIO ==="
+        # Buscamos de forma inteligente dónde están los manifiestos de Kubernetes
+        # para evitar el error de "path does not exist"
+        PATH_NS=$(find . -name "namespace.yaml" -o -name "namespace.yml" | head -n 1)
+        PATH_SEC=$(find . -name "mysql-secret.yaml" -o -name "mysql-secret.yml" | head -n 1)
+        PATH_M_DEP=$(find . -name "mysql-deployment.yaml" -o -name "mysql-deployment.yml" | head -n 1)
+        PATH_M_SVC=$(find . -name "mysql-service.yaml" -o -name "mysql-service.yml" | head -n 1)
+        PATH_B_DEP=$(find . -name "backend-deployment.yaml" -o -name "backend-deployment.yml" | head -n 1)
+        PATH_B_SVC=$(find . -name "backend-service.yaml" -o -name "backend-service.yml" | head -n 1)
+        PATH_B_HPA=$(find . -name "*hpa-backend*" -o -name "*backend-hpa*" | head -n 1)
+        PATH_F_DEP=$(find . -name "frontend-deployment.yaml" -o -name "frontend-deployment.yml" | head -n 1)
+        PATH_F_SVC=$(find . -name "frontend-service.yaml" -o -name "frontend-service.yml" | head -n 1)
+
+        echo "Manifiestos encontrados:"
+        echo "Namespace -> $PATH_NS"
+        echo "Backend HPA -> $PATH_B_HPA"
+
+        # 1. Aplicamos los planos usando las rutas dinámicas encontradas
+        kubectl apply -f $PATH_NS
+        kubectl apply -f $PATH_SEC -n tienda
+        kubectl apply -f $PATH_M_DEP -n tienda
+        kubectl apply -f $PATH_M_SVC -n tienda
+        kubectl apply -f $PATH_B_DEP -n tienda
+        kubectl apply -f $PATH_B_SVC -n tienda
+        kubectl apply -f $PATH_B_HPA -n tienda
+        kubectl apply -f $PATH_F_DEP -n tienda
+        kubectl apply -f $PATH_F_SVC -n tienda
 
         # 2. Obtenemos la URL dinámica de tu cuenta de AWS actual
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
         REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
 
-        # 3. LA ORDEN MÁGICA: Forzamos a Kubernetes a actualizar las imágenes en caliente
+        # 3. Forzamos la actualización de imágenes directo en el clúster
         echo "Actualizando los contenedores con las rutas reales de ECR..."
         kubectl set image deployment/tienda-db mysql=$REAL_ECR_URL/tienda-db:eks-v1 -n tienda
         kubectl set image deployment/tienda-backend backend=$REAL_ECR_URL/tienda-backend:eks-v1 -n tienda
         kubectl set image deployment/tienda-frontend frontend=$REAL_ECR_URL/tienda-frontend:eks-v1 -n tienda
 
     # ===================================================================
-    # PASO 6: REVISIÓN DE ESTADO (Para ver el Running en la consola de Git)
+    # PASO 6: REVISIÓN DE ESTADO
     # ===================================================================
     - name: Verificar Estado de Salud de los Pods
       run: |
-        echo "Esperando 40 segundos a que el clúster descargue e inicie los contenedores correctos..."
+        echo "Esperando 40 segundos a que el clúster descargue e inicie los contenedores..."
         sleep 40
         echo "=========================================================="
         echo "ESTADO ACTUAL DE TUS PODS EN GIT:"

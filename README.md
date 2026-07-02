@@ -1,6 +1,6 @@
 # Tienda de Perritos - Pipeline de CI/CD con GitHub Actions y AWS EKS
 
-Este repositorio contiene la configuración completa para el despliegue automatizado de la aplicación Tienda de Perritos. El proyecto implementa una arquitectura de microservicios contenerizados mediante Docker y un flujo continuo de CI/CD que automatiza la entrega en un clúster gestionado de Kubernetes en Amazon Web Services (AWS EKS).
+Este repositorio contiene la configuración completa para el despliegue automatizado de la aplicación Tienda de Perritos. El proyecto implementa una arquitectura de microservicios contenerizados mediante Docker y un flujo continuo de CI/CD que automatiza la entrega en un clúster gestionado de Kubernetes en Amazon Web Services (AWS EKS)
 
 ---
 

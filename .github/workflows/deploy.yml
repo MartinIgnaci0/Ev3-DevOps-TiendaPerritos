@@ -54,14 +54,14 @@ jobs:
         aws eks update-kubeconfig --region us-east-1 --name devopseks
 
     # ===================================================================
-    # PASO 4: AUTENTICAR DOCKER CON AMAZON ECR (Clave para poder hacer Push)
+    # PASO 4: AUTENTICAR DOCKER CON AMAZON ECR
     # ===================================================================
     - name: Log in to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
     # ===================================================================
-    # PASO 5: COMPILAR, ETIQUETAR Y SUBIR IMÁGENES (Dinámico y Automático)
+    # PASO 5: COMPILAR, ETIQUETAR Y SUBIR IMÁGENES
     # ===================================================================
     - name: Compilar y Subir Imágenes a AWS ECR
       run: |
@@ -97,21 +97,26 @@ jobs:
         docker build -t $REAL_ECR_URL/$REPO_FRONT:eks-v1 ./frontend
         docker push $REAL_ECR_URL/$REPO_FRONT:eks-v1
 
-        # 4. Modificar dinámicamente toda la cadena de texto de la imagen por la URL y repositorio real
-        sed -i "s|{{ECR_URL}}/tienda-db:eks-v1|$REAL_ECR_URL/$REPO_DB:eks-v1|g" k8s/mysql-deployment.yaml
-        sed -i "s|{{ECR_URL}}/tienda-backend:eks-v1|$REAL_ECR_URL/$REPO_BACK:eks-v1|g" k8s/backend-deployment.yaml
-        sed -i "s|{{ECR_URL}}/tienda-frontend:eks-v1|$REAL_ECR_URL/$REPO_FRONT:eks-v1|g" k8s/frontend-deployment.yaml
+        # 4. REEMPLAZO ULTRA SEGURO: Reemplaza solo la variable base {{ECR_URL}} por la real de AWS
+        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/mysql-deployment.yaml
+        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/backend-deployment.yaml
+        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/frontend-deployment.yaml
 
-        # 5. Limpieza estratégica preventiva para forzar a K8s a descargar las imágenes nuevas limpiando errores
+        # 5. Además, si el repositorio real de AWS se llama diferente a 'tienda-backend', corregimos el nombre en el archivo corregido
+        sed -i "s|/tienda-db:|$/$REPO_DB:|g" k8s/mysql-deployment.yaml
+        sed -i "s|/tienda-backend:|$/$REPO_BACK:|g" k8s/backend-deployment.yaml
+        sed -i "s|/tienda-frontend:|$/$REPO_FRONT:|g" k8s/frontend-deployment.yaml
+
+        # 6. Limpieza estratégica preventiva para eliminar de raíz los pods viejos pegados
         if kubectl get namespace tienda > /dev/null 2>&1; then
           echo "Reseteando pods previos para aplicar las imágenes recién subidas..."
           kubectl delete namespace tienda --timeout=60s || echo "Continuando..."
         fi
 
     # ===================================================================
-    # PASO 6: DESPLIEGUE EN KUBERNETES (Ahora sí encontrará las imágenes)
+    # PASO 6: DESPLIEGUE EN KUBERNETES
     # ===================================================================
-    - name: Desplegar en Kubernetes (EKS)
+    - name: Desplegar en Kubernetes
       run: |
         kubectl apply -f k8s/namespace.yaml
         kubectl apply -f k8s/mysql-secret.yaml -n tienda
@@ -129,8 +134,8 @@ jobs:
     # ===================================================================
     - name: Verificar Estado de Salud de los Pods
       run: |
-        echo "Esperando 30 segundos a que Kubernetes descargar e inicie los contenedores..."
-        sleep 30
+        echo "Esperando 45 segundos a que Kubernetes descargue e inicie los nuevos contenedores..."
+        sleep 45
         echo "=========================================================="
         echo "REVISANDO SI LOS CONTENEDORES ESTÁN CORRIENDO BIEN:"
         kubectl get pods -n tienda

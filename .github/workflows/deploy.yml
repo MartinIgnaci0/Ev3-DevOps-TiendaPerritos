@@ -21,7 +21,7 @@ jobs:
         aws-region: us-east-1
 
     # ===================================================================
-    # PASO 1: VERIFICAR SI EL STACK YA EXISTE EN AWS (Con nuevo nombre)
+    # PASO 1: VERIFICAR SI EL STACK YA EXISTE EN AWS
     # ===================================================================
     - name: Comprobar existencia del Stack
       id: check-stack
@@ -35,10 +35,10 @@ jobs:
         fi
 
     # ===================================================================
-    # PASO 2: CREAR INFRAESTRUCTURA (Solo se ejecuta si NO existe DevopsEv3)
+    # PASO 2: CREAR INFRAESTRUCTURA (Corregido con punto 'steps.check-stack')
     # ===================================================================
     - name: Desplegar Infraestructura Base (CloudFormation)
-      if: steps:check-stack.outputs.existe == 'false'
+      if: steps.check-stack.outputs.existe == 'false'
       uses: aws-actions/aws-cloudformation-github-deploy@v1
       with:
         name: DevopsEv3

@@ -26,6 +26,10 @@ jobs:
 
     - name: Desplegar en Kubernetes (EKS)
       run: |
-        kubectl apply -f mysql-deployment.yaml
-        kubectl apply -f backend-deployment.yaml
-        kubectl apply -f frontend-deployment.yaml
+        kubectl apply -f k8s/mysql-secret.yaml
+        kubectl apply -f k8s/mysql-deployment.yaml
+        kubectl apply -f k8s/mysql-service.yaml
+        kubectl apply -f k8s/backend-deployment.yaml
+        kubectl apply -f k8s/backend-service.yaml
+        kubectl apply -f k8s/frontend-deployment.yaml
+        kubectl apply -f k8s/frontend-service.yaml

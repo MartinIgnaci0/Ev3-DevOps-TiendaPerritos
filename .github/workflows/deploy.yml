@@ -54,23 +54,47 @@ jobs:
         aws eks update-kubeconfig --region us-east-1 --name devopseks
 
     # ===================================================================
-    # PASO EXTRA INYECTADO: REEMPLAZAR DINÁMICAMENTE {{ECR_URL}} POR LA REAL
+    # PASO 4: AUTENTICAR DOCKER CON AMAZON ECR
     # ===================================================================
-    - name: Configurar URL Real de ECR en Archivos YAML
+    - name: Log in to Amazon ECR
+      id: login-ecr
+      uses: aws-actions/amazon-ecr-login@v1
+
+    # ===================================================================
+    # PASO 5: CONSTRUIRE, ETIQUETAR Y SUBIR LAS IMÁGENES A ECR
+    # ===================================================================
+    - name: Compilar y Subir Imágenes a AWS ECR
       run: |
-        # Obtenemos el ID de cuenta de AWS actual para el laboratorio activo
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
         REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
         
-        echo "Inyectando URL de ECR detectada: $REAL_ECR_URL"
+        echo "Compilando e inyectando componentes hacia: $REAL_ECR_URL"
         
-        # Cambiamos las etiquetas flotantes por el DNS real antes del deploy
+        # 1. Base de datos (Suponiendo que tienes un Dockerfile en k8s/ o raíz para la DB, o cámbialo por imagen pública si aplica)
+        # Si tu mysql usa un Dockerfile local:
+        if [ -f k8s/Dockerfile.db ] || [ -f Dockerfile.db ]; then
+          docker build -t $REAL_ECR_URL/tienda-db:eks-v1 -f k8s/Dockerfile.db .
+          docker push $REAL_ECR_URL/tienda-db:eks-v1
+        else
+          # Si no compilas DB y usas una limpia, puedes omitir el build de DB y cambiar la imagen en el yaml por "mysql:5.7"
+          echo "No se detectó Dockerfile para DB. Asegúrate de compilarla o usar una pública."
+        fi
+
+        # 2. Compilar Backend (Apunta a la carpeta donde esté tu backend)
+        docker build -t $REAL_ECR_URL/tienda-backend:eks-v1 ./backend
+        docker push $REAL_ECR_URL/tienda-backend:eks-v1
+
+        # 3. Compilar Frontend (Apunta a la carpeta donde esté tu frontend)
+        docker build -t $REAL_ECR_URL/tienda-frontend:eks-v1 ./frontend
+        docker push $REAL_ECR_URL/tienda-frontend:eks-v1
+
+        # 4. Modificar los YAML con el prefijo real para que K8s los encuentre
         sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/mysql-deployment.yaml
         sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/backend-deployment.yaml
         sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/frontend-deployment.yaml
 
     # ===================================================================
-    # PASO 4: DESPLIEGUE EN KUBERNETES (Idempotente)
+    # PASO 6: DESPLIEGUE EN KUBERNETES (Idempotente)
     # ===================================================================
     - name: Desplegar en Kubernetes (EKS)
       run: |
@@ -86,25 +110,23 @@ jobs:
         kubectl apply -f k8s/frontend-hpa.yaml -n tienda
 
     # ===================================================================
-    # PASO NUEVO: DIAGNÓSTICO DE PODS (Para saber por qué no carga la web)
+    # PASO 7: DIAGNÓSTICO DE PODS
     # ===================================================================
     - name: Verificar Estado de Salud de los Pods
       run: |
+        echo "Esperando 10 segundos a que inicien los contenedores..."
+        sleep 10
         echo "=========================================================="
         echo "REVISANDO SI LOS CONTENEDORES ESTÁN CORRIENDO BIEN:"
         kubectl get pods -n tienda
         echo "=========================================================="
 
     # ===================================================================
-    # PASO 5: OBTENER URL DE LA WEB (Modificado para que no falle)
+    # PASO 8: OBTENER URL DE LA WEB
     # ===================================================================
     - name: Obtener URL de la Tienda de Perritos
       run: |
-        echo "Esperando 15 segundos a que AWS asigne y propague los LoadBalancers..."
-        sleep 15
         echo "=========================================================="
         echo "ESTADO DE LOS SERVICIOS EN EL NAMESPACE 'TIENDA':"
         kubectl get svc -n tienda
-        echo "=========================================================="
-        echo "REVISAR COLUMNA 'EXTERNAL-IP' DEL SERVICIO FRONTEND ARRIBA"
         echo "=========================================================="

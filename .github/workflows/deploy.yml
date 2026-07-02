@@ -20,16 +20,57 @@ jobs:
         aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
         aws-region: us-east-1
 
+    # ===================================================================
+    # PASO 1: CREACIÓN AUTOMÁTICA DE INFRAESTRUCTURA
+    # ===================================================================
+    - name: Desplegar Infraestructura Base (CloudFormation)
+      uses: aws-actions/aws-cloudformation-github-deploy@v1
+      with:
+        name: devopseks-stack
+        template: duoc-devops-act3.yaml
+        no-fail-on-empty-changeset: "1"
+        parameter-overrides: |
+          EksClusterRoleName=LabRole
+          EksNodeRoleName=LabRole
+
     - name: Actualizar Kubeconfig para EKS
       run: |
         aws eks update-kubeconfig --region us-east-1 --name devopseks
 
+    # ===================================================================
+    # PASO 2: DESPLIEGUE AUTOMÁTICO DE LA APLICACIÓN
+    # ===================================================================
     - name: Desplegar en Kubernetes (EKS)
       run: |
-        kubectl apply -f k8s/mysql-secret.yaml
-        kubectl apply -f k8s/mysql-deployment.yaml
-        kubectl apply -f k8s/mysql-service.yaml
-        kubectl apply -f k8s/backend-deployment.yaml
-        kubectl apply -f k8s/backend-service.yaml
-        kubectl apply -f k8s/frontend-deployment.yaml
-        kubectl apply -f k8s/frontend-service.yaml
+        # 1. Creamos el Namespace usando tu archivo real para aislar el entorno
+        kubectl apply -f k8s/namespace.yaml
+        
+        # 2. Aplicamos el secreto directamente en el namespace correcto
+        kubectl apply -f k8s/mysql-secret.yaml -n tienda
+        
+        # 3. Levantamos la Base de Datos (MySQL)
+        kubectl apply -f k8s/mysql-deployment.yaml -n tienda
+        kubectl apply -f k8s/mysql-service.yaml -n tienda
+        
+        # 4. Levantamos el Backend y sus políticas de autoescalado (HPA)
+        kubectl apply -f k8s/backend-deployment.yaml -n tienda
+        kubectl apply -f k8s/backend-service.yaml -n tienda
+        kubectl apply -f k8s/backend-hpa.yaml -n tienda
+        
+        # 5. Levantamos el Frontend y sus políticas de autoescalado (HPA)
+        kubectl apply -f k8s/frontend-deployment.yaml -n tienda
+        kubectl apply -f k8s/frontend-service.yaml -n tienda
+        kubectl apply -f k8s/frontend-hpa.yaml -n tienda
+
+    # ===================================================================
+    # PASO 3: IMPRIMIR URL EN LA CONSOLA DE GITHUB (Evita abrir AWS)
+    # ===================================================================
+    - name: Obtener URL de la Tienda de Perritos
+      run: |
+        echo "Esperando 10 segundos a que AWS asigne y propague la URL..."
+        sleep 10
+        echo "=========================================================="
+        echo "TU TIENDA DE PERRITOS ESTÁ CORRIENDO EN:"
+        kubectl get svc frontend-service -n tienda -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+        echo ""
+        echo "=========================================================="

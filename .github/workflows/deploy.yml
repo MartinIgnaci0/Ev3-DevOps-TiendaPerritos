@@ -35,7 +35,7 @@ jobs:
         fi
 
     # ===================================================================
-    # PASO 2: CREAR INFRAESTRUCTURA (Corregido con punto 'steps.check-stack')
+    # PASO 2: CREAR INFRAESTRUCTURA (Solo se ejecuta si NO existe DevopsEv3)
     # ===================================================================
     - name: Desplegar Infraestructura Base (CloudFormation)
       if: steps.check-stack.outputs.existe == 'false'
@@ -70,14 +70,15 @@ jobs:
         kubectl apply -f k8s/frontend-hpa.yaml -n tienda
 
     # ===================================================================
-    # PASO 5: OBTENER URL DE LA WEB
+    # PASO 5: OBTENER URL DE LA WEB (Modificado para que no falle)
     # ===================================================================
     - name: Obtener URL de la Tienda de Perritos
       run: |
-        echo "Esperando 10 segundos a que AWS asigne y propague la URL..."
-        sleep 10
+        echo "Esperando 15 segundos a que AWS asigne y propague los LoadBalancers..."
+        sleep 15
         echo "=========================================================="
-        echo "TU TIENDA DE PERRITOS ESTÁ CORRIENDO EN:"
-        kubectl get svc frontend-service -n tienda -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-        echo ""
+        echo "ESTADO DE LOS SERVICIOS EN EL NAMESPACE 'TIENDA':"
+        kubectl get svc -n tienda
+        echo "=========================================================="
+        echo "REVISAR COLUMNA 'EXTERNAL-IP' DEL SERVICIO FRONTEND ARRIBA"
         echo "=========================================================="

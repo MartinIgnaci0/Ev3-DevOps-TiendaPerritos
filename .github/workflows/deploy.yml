@@ -21,7 +21,7 @@ jobs:
         aws-region: us-east-1
 
     # ===================================================================
-    # PASO 1: CREACIÓN AUTOMÁTICA DE INFRAESTRUCTURA (Corregido en 1 línea)
+    # PASO 1: CREACIÓN DE INFRAESTRUCTURA (Con congelamiento de errores)
     # ===================================================================
     - name: Desplegar Infraestructura Base (CloudFormation)
       uses: aws-actions/aws-cloudformation-github-deploy@v1
@@ -30,6 +30,7 @@ jobs:
         template: duoc-devops-act3.yaml
         no-fail-on-empty-changeset: "1"
         parameter-overrides: "EksClusterRoleName=LabRole,EksNodeRoleName=LabRole"
+        disable-rollback: "true" # Evita que se borre el log del error en AWS
 
     - name: Actualizar Kubeconfig para EKS
       run: |
@@ -40,22 +41,13 @@ jobs:
     # ===================================================================
     - name: Desplegar en Kubernetes (EKS)
       run: |
-        # 1. Creamos el Namespace usando tu archivo real para aislar el entorno
         kubectl apply -f k8s/namespace.yaml
-        
-        # 2. Aplicamos el secreto directamente en el namespace correcto
         kubectl apply -f k8s/mysql-secret.yaml -n tienda
-        
-        # 3. Levantamos la Base de Datos (MySQL)
         kubectl apply -f k8s/mysql-deployment.yaml -n tienda
         kubectl apply -f k8s/mysql-service.yaml -n tienda
-        
-        # 4. Levantamos el Backend y sus políticas de autoescalado (HPA)
         kubectl apply -f k8s/backend-deployment.yaml -n tienda
         kubectl apply -f k8s/backend-service.yaml -n tienda
         kubectl apply -f k8s/backend-hpa.yaml -n tienda
-        
-        # 5. Levantamos el Frontend y sus políticas de autoescalado (HPA)
         kubectl apply -f k8s/frontend-deployment.yaml -n tienda
         kubectl apply -f k8s/frontend-service.yaml -n tienda
         kubectl apply -f k8s/frontend-hpa.yaml -n tienda

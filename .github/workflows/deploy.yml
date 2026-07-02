@@ -61,7 +61,7 @@ jobs:
       uses: aws-actions/amazon-ecr-login@v1
 
     # ===================================================================
-    # PASO 5: COMPILAR, ETIQUETAR Y SUBIR IMÁGENES (Lo que hacías manual)
+    # PASO 5: COMPILAR, ETIQUETAR Y SUBIR IMÁGENES (Dinámico y Automático)
     # ===================================================================
     - name: Compilar y Subir Imágenes a AWS ECR
       run: |
@@ -69,26 +69,40 @@ jobs:
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
         REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
         
-        echo "Generando builds de Docker para: $REAL_ECR_URL"
+        echo "=========================================================="
+        echo "REPOSITORIOS DETECTADOS EN TU CUENTA DE AWS ACTUAL:"
+        aws ecr describe-repositories --query "repositories[].repositoryName" --output table
+        echo "=========================================================="
         
-        # 2. Compilar y subir Base de Datos (usando tu carpeta db/)
-        docker build -t $REAL_ECR_URL/tienda-db:eks-v1 ./db
-        docker push $REAL_ECR_URL/tienda-db:eks-v1
+        # 2. Mapear dinámicamente los nombres reales creados por CloudFormation
+        REPO_DB=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, 'db') || contains(repositoryName, 'mysql')].repositoryName" --output text | awk '{print $1}')
+        REPO_BACK=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, 'backend') || contains(repositoryName, 'back')].repositoryName" --output text | awk '{print $1}')
+        REPO_FRONT=$(aws ecr describe-repositories --query "repositories[?contains(repositoryName, 'frontend') || contains(repositoryName, 'front')].repositoryName" --output text | awk '{print $1}')
 
-        # 3. Compilar y subir Backend (usando tu carpeta backend/)
-        docker build -t $REAL_ECR_URL/tienda-backend:eks-v1 ./backend
-        docker push $REAL_ECR_URL/tienda-backend:eks-v1
+        echo "Mapeo de Repositorios Reales de AWS:"
+        echo "-> Carpeta db/ irá al Repositorio AWS: $REPO_DB"
+        echo "-> Carpeta backend/ irá al Repositorio AWS: $REPO_BACK"
+        echo "-> Carpeta frontend/ irá al Repositorio AWS: $REPO_FRONT"
 
-        # 4. Compilar y subir Frontend (usando tu carpeta frontend/)
-        docker build -t $REAL_ECR_URL/tienda-frontend:eks-v1 ./frontend
-        docker push $REAL_ECR_URL/tienda-frontend:eks-v1
+        # 3. Compilar y subir usando tus carpetas locales hacia los repositorios REALES de AWS
+        echo "Compilando e impulsando imagen de Base de Datos..."
+        docker build -t $REAL_ECR_URL/$REPO_DB:eks-v1 ./db
+        docker push $REAL_ECR_URL/$REPO_DB:eks-v1
 
-        # 5. Modificar dinámicamente los archivos YAML antes del despliegue
-        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/mysql-deployment.yaml
-        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/backend-deployment.yaml
-        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/frontend-deployment.yaml
+        echo "Compilando e impulsando imagen de Backend..."
+        docker build -t $REAL_ECR_URL/$REPO_BACK:eks-v1 ./backend
+        docker push $REAL_ECR_URL/$REPO_BACK:eks-v1
 
-        # 6. Limpieza estratégica preventiva para forzar a K8s a descargar las imágenes nuevas
+        echo "Compilando e impulsando imagen de Frontend..."
+        docker build -t $REAL_ECR_URL/$REPO_FRONT:eks-v1 ./frontend
+        docker push $REAL_ECR_URL/$REPO_FRONT:eks-v1
+
+        # 4. Modificar dinámicamente toda la cadena de texto de la imagen por la URL y repositorio real
+        sed -i "s|{{ECR_URL}}/tienda-db:eks-v1|$REAL_ECR_URL/$REPO_DB:eks-v1|g" k8s/mysql-deployment.yaml
+        sed -i "s|{{ECR_URL}}/tienda-backend:eks-v1|$REAL_ECR_URL/$REPO_BACK:eks-v1|g" k8s/backend-deployment.yaml
+        sed -i "s|{{ECR_URL}}/tienda-frontend:eks-v1|$REAL_ECR_URL/$REPO_FRONT:eks-v1|g" k8s/frontend-deployment.yaml
+
+        # 5. Limpieza estratégica preventiva para forzar a K8s a descargar las imágenes nuevas limpiando errores
         if kubectl get namespace tienda > /dev/null 2>&1; then
           echo "Reseteando pods previos para aplicar las imágenes recién subidas..."
           kubectl delete namespace tienda --timeout=60s || echo "Continuando..."
@@ -115,7 +129,7 @@ jobs:
     # ===================================================================
     - name: Verificar Estado de Salud de los Pods
       run: |
-        echo "Esperando 30 segundos a que Kubernetes descargue e inicie los contenedores..."
+        echo "Esperando 30 segundos a que Kubernetes descargar e inicie los contenedores..."
         sleep 30
         echo "=========================================================="
         echo "REVISANDO SI LOS CONTENEDORES ESTÁN CORRIENDO BIEN:"

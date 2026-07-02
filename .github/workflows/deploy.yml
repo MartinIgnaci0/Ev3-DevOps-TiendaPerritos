@@ -22,7 +22,7 @@ jobs:
 
     - name: Actualizar Kubeconfig para EKS
       run: |
-        aws eks update-kubeconfig --region us-east-1 --name EKS-Cluster
+        aws eks update-kubeconfig --region us-east-1 --name devopseks
 
     - name: Desplegar en Kubernetes (EKS)
       run: |

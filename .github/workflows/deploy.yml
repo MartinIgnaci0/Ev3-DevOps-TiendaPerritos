@@ -21,7 +21,7 @@ jobs:
         aws-region: us-east-1
 
     # ===================================================================
-    # PASO 1: CREACIÓN AUTOMÁTICA DE INFRAESTRUCTURA
+    # PASO 1: CREACIÓN AUTOMÁTICA DE INFRAESTRUCTURA (Corregido en 1 línea)
     # ===================================================================
     - name: Desplegar Infraestructura Base (CloudFormation)
       uses: aws-actions/aws-cloudformation-github-deploy@v1
@@ -29,9 +29,7 @@ jobs:
         name: devopseks-stack
         template: duoc-devops-act3.yaml
         no-fail-on-empty-changeset: "1"
-        parameter-overrides: |
-          EksClusterRoleName=LabRole
-          EksNodeRoleName=LabRole
+        parameter-overrides: "EksClusterRoleName=LabRole,EksNodeRoleName=LabRole"
 
     - name: Actualizar Kubeconfig para EKS
       run: |
@@ -63,7 +61,7 @@ jobs:
         kubectl apply -f k8s/frontend-hpa.yaml -n tienda
 
     # ===================================================================
-    # PASO 3: IMPRIMIR URL EN LA CONSOLA DE GITHUB (Evita abrir AWS)
+    # PASO 3: IMPRIMIR URL EN LA CONSOLA DE GITHUB
     # ===================================================================
     - name: Obtener URL de la Tienda de Perritos
       run: |

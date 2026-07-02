@@ -54,6 +54,22 @@ jobs:
         aws eks update-kubeconfig --region us-east-1 --name devopseks
 
     # ===================================================================
+    # PASO EXTRA INYECTADO: REEMPLAZAR DINÁMICAMENTE {{ECR_URL}} POR LA REAL
+    # ===================================================================
+    - name: Configurar URL Real de ECR en Archivos YAML
+      run: |
+        # Obtenemos el ID de cuenta de AWS actual para el laboratorio activo
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+        REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+        
+        echo "Inyectando URL de ECR detectada: $REAL_ECR_URL"
+        
+        # Cambiamos las etiquetas flotantes por el DNS real antes del deploy
+        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/mysql-deployment.yaml
+        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/backend-deployment.yaml
+        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/frontend-deployment.yaml
+
+    # ===================================================================
     # PASO 4: DESPLIEGUE EN KUBERNETES (Idempotente)
     # ===================================================================
     - name: Desplegar en Kubernetes (EKS)

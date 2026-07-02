@@ -21,22 +21,17 @@ jobs:
         aws-region: us-east-1
 
     # ===================================================================
-    # PASO 1: VERIFICAR SI EL STACK YA EXISTE EN AWS
+    # PASO 1: VERIFICAR/CREAR INFRAESTRUCTURA
     # ===================================================================
     - name: Comprobar existencia del Stack
       id: check-stack
       run: |
         if aws cloudformation describe-stacks --stack-name DevopsEv3 > /dev/null 2>&1; then
           echo "existe=true" >> $GITHUB_OUTPUT
-          echo "¡El clúster ya existe en AWS bajo el nombre DevopsEv3! Saltando creación..."
         else
           echo "existe=false" >> $GITHUB_OUTPUT
-          echo "El clúster DevopsEv3 no existe. Iniciando aprovisionamiento completo..."
         fi
 
-    # ===================================================================
-    # PASO 2: CREAR INFRAESTRUCTURA (Solo se ejecuta si NO existe DevopsEv3)
-    # ===================================================================
     - name: Desplegar Infraestructura Base (CloudFormation)
       if: steps.check-stack.outputs.existe == 'false'
       uses: aws-actions/aws-cloudformation-github-deploy@v1
@@ -47,88 +42,86 @@ jobs:
         parameter-overrides: "EksClusterRoleName=LabRole,EksNodeRoleName=LabRole"
 
     # ===================================================================
-    # PASO 3: CONECTARSE AL CLÚSTER (Aplica para ambos casos)
+    # PASO 2: CONECTARSE AL CLÚSTER
     # ===================================================================
     - name: Actualizar Kubeconfig para EKS
       run: |
         aws eks update-kubeconfig --region us-east-1 --name devopseks
 
     # ===================================================================
-    # PASO 4: AUTENTICAR DOCKER CON AMAZON ECR
+    # PASO 3: AUTENTICAR CON AMAZON ECR
     # ===================================================================
     - name: Log in to Amazon ECR
       id: login-ecr
       uses: aws-actions/amazon-ecr-login@v1
 
     # ===================================================================
-    # PASO 5: COMPILAR, ETIQUETAR Y SUBIR IMÁGENES
+    # PASO 4: COMPILAR Y SUBIR IMÁGENES A ECR
     # ===================================================================
     - name: Compilar y Subir Imágenes a AWS ECR
       run: |
-        # 1. Obtenemos la URL real de tu cuenta
         AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
         REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
         
-        echo "Compilando e impulsando imágenes hacia: $REAL_ECR_URL"
-        
-        # 2. Compilar y subir Base de Datos utilizando tus carpetas locales
+        # Construye y sube las imágenes usando tus carpetas locales
         docker build -t $REAL_ECR_URL/tienda-db:eks-v1 ./db
         docker push $REAL_ECR_URL/tienda-db:eks-v1
 
-        # 3. Compilar y subir Backend utilizando tus carpetas locales
         docker build -t $REAL_ECR_URL/tienda-backend:eks-v1 ./backend
         docker push $REAL_ECR_URL/tienda-backend:eks-v1
 
-        # 4. Compilar y subir Frontend utilizando tus carpetas locales
         docker build -t $REAL_ECR_URL/tienda-frontend:eks-v1 ./frontend
         docker push $REAL_ECR_URL/tienda-frontend:eks-v1
 
-        # 5. REEMPLAZO LIMPIO Y SEGURO: Reemplazar únicamente {{ECR_URL}} por el valor real
-        # Esto evitará cualquier error de caracteres inválidos (InvalidImageName)
-        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/mysql-deployment.yaml
-        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/backend-deployment.yaml
-        sed -i "s|{{ECR_URL}}|$REAL_ECR_URL|g" k8s/frontend-deployment.yaml
-
-        # 6. Limpieza estratégica preventiva para eliminar de raíz los pods corruptos anteriores
-        if kubectl get namespace tienda > /dev/null 2>&1; then
-          echo "Reseteando namespace previo para aplicar la configuración limpia..."
-          kubectl delete namespace tienda --timeout=60s || echo "Continuando..."
-        fi
-
     # ===================================================================
-    # PASO 6: DESPLIEGUE EN KUBERNETES
+    # PASO 5: APLICAR DESDE LA RAÍZ Y INYECTAR IMÁGENES REALES
     # ===================================================================
-    - name: Desplegar en Kubernetes
+    - name: Desplegar e inyectar imágenes en Kubernetes
       run: |
-        kubectl apply -f k8s/namespace.yaml
-        kubectl apply -f k8s/mysql-secret.yaml -n tienda
-        kubectl apply -f k8s/mysql-deployment.yaml -n tienda
-        kubectl apply -f k8s/mysql-service.yaml -n tienda
-        kubectl apply -f k8s/backend-deployment.yaml -n tienda
-        kubectl apply -f k8s/backend-service.yaml -n tienda
-        kubectl apply -f k8s/backend-hpa.yaml -n tienda
-        kubectl apply -f k8s/frontend-deployment.yaml -n tienda
-        kubectl apply -f k8s/frontend-service.yaml -n tienda
-        kubectl apply -f k8s/frontend-hpa.yaml -n tienda
+        # 1. Aplicamos los archivos directo de la raíz (sin carpetas intermedias)
+        kubectl apply -f namespace.yaml
+        kubectl apply -f mysql-secret.yaml -n tienda
+        kubectl apply -f mysql-deployment.yaml -n tienda
+        kubectl apply -f mysql-service.yaml -n tienda
+        kubectl apply -f backend-deployment.yaml -n tienda
+        kubectl apply -f backend-service.yaml -n tienda
+        
+        # Aquí aplicamos tu archivo tal como lo nombramos: hpa-backend.yaml
+        kubectl apply -f hpa-backend.yaml -n tienda
+        
+        # Si tienes hpa del frontend, descomenta la línea de abajo borrando el '#'
+        # kubectl apply -f frontend-hpa.yaml -n tienda
+        
+        kubectl apply -f frontend-deployment.yaml -n tienda
+        kubectl apply -f frontend-service.yaml -n tienda
+
+        # 2. Obtenemos la URL dinámica de tu cuenta de AWS actual
+        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+        REAL_ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.us-east-1.amazonaws.com"
+
+        # 3. LA ORDEN MÁGICA: Forzamos a Kubernetes a actualizar las imágenes en caliente
+        echo "Actualizando los contenedores con las rutas reales de ECR..."
+        kubectl set image deployment/tienda-db mysql=$REAL_ECR_URL/tienda-db:eks-v1 -n tienda
+        kubectl set image deployment/tienda-backend backend=$REAL_ECR_URL/tienda-backend:eks-v1 -n tienda
+        kubectl set image deployment/tienda-frontend frontend=$REAL_ECR_URL/tienda-frontend:eks-v1 -n tienda
 
     # ===================================================================
-    # PASO 7: DIAGNÓSTICO DE PODS
+    # PASO 6: REVISIÓN DE ESTADO (Para ver el Running en la consola de Git)
     # ===================================================================
     - name: Verificar Estado de Salud de los Pods
       run: |
-        echo "Esperando 45 segundos a que Kubernetes descargue e inicie los nuevos contenedores..."
-        sleep 45
+        echo "Esperando 40 segundos a que el clúster descargue e inicie los contenedores correctos..."
+        sleep 40
         echo "=========================================================="
-        echo "REVISANDO SI LOS CONTENEDORES ESTÁN CORRIENDO BIEN:"
+        echo "ESTADO ACTUAL DE TUS PODS EN GIT:"
         kubectl get pods -n tienda
         echo "=========================================================="
 
     # ===================================================================
-    # PASO 8: OBTENER URL DE LA WEB
+    # PASO 7: OBTENER URL DE LA WEB
     # ===================================================================
     - name: Obtener URL de la Tienda de Perritos
       run: |
         echo "=========================================================="
-        echo "ESTADO DE LOS SERVICIOS EN EL NAMESPACE 'TIENDA':"
         kubectl get svc -n tienda
         echo "=========================================================="

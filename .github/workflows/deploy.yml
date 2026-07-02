@@ -70,6 +70,16 @@ jobs:
         kubectl apply -f k8s/frontend-hpa.yaml -n tienda
 
     # ===================================================================
+    # PASO NUEVO: DIAGNÓSTICO DE PODS (Para saber por qué no carga la web)
+    # ===================================================================
+    - name: Verificar Estado de Salud de los Pods
+      run: |
+        echo "=========================================================="
+        echo "REVISANDO SI LOS CONTENEDORES ESTÁN CORRIENDO BIEN:"
+        kubectl get pods -n tienda
+        echo "=========================================================="
+
+    # ===================================================================
     # PASO 5: OBTENER URL DE LA WEB (Modificado para que no falle)
     # ===================================================================
     - name: Obtener URL de la Tienda de Perritos
